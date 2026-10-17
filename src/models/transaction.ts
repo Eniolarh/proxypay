@@ -85,7 +85,7 @@ const DATE_FILTER_COLUMNS: Record<"createdAt" | "updatedAt", string> = {
 
 const MAX_TAGS = 10;
 const TAG_REGEX = /^[a-z0-9-]+$/;
-const MAX_METADATA_BYTES = 10240;
+export const MAX_METADATA_BYTES = 10240;
 
 // ── Metadata schema (#645) ────────────────────────────────────────────────────
 //
@@ -93,12 +93,18 @@ const MAX_METADATA_BYTES = 10240;
 // JSON structures from breaking reporting and analytics pipelines.
 //
 // All top-level keys are optional so callers can supply partial metadata.
-// Unknown keys are stripped (`.strip()`) to guard against future field clashes.
+//
+// Unknown keys are intentionally *retained* (`.passthrough()`) for forward
+// compatibility: providers and workers may attach extra diagnostic fields
+// without requiring a schema change, and metadata written by a newer deploy
+// must survive a round-trip through an older one. Only the presence and shape
+// of known fields are enforced; the total serialized size is capped separately
+// by MAX_METADATA_BYTES in `validateMetadata`.
 //
 // If you need to add a new first-class metadata field:
 //   1. Add the field definition here (keep it optional).
 //   2. Update the OpenAPI schema in src/openapi/schemas/transactions.ts.
-//   3. Add a test in src/stellar/__tests__/trustlines.test.ts (or relevant file).
+//   3. Add a test in src/models/__tests__/transaction.metadata.test.ts.
 
 export const metadataSchema = z
   .object({
@@ -202,7 +208,7 @@ function validateTags(tags: string[]): void {
   }
 }
 
-function validateMetadata(metadata: unknown): Record<string, unknown> {
+export function validateMetadata(metadata: unknown): Record<string, unknown> {
   if (!metadata) return {};
   if (typeof metadata !== "object" || Array.isArray(metadata)) {
     throw new Error("Metadata must be a JSON object");
