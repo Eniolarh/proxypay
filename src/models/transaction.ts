@@ -1,6 +1,5 @@
 import { queryRead, queryWrite } from "../config/database";
 import { generateReferenceNumber } from "../utils/referenceGenerator";
-import { decodeTransactionCursor } from "../utils/transactionCursor";
 import { encrypt, decrypt, hashSearchValue } from "../utils/encryption";
 import { WebSocketManager } from "../websocket";
 import { getRedisPubSub } from "../graphql/redisPubSub";
@@ -67,6 +66,11 @@ export interface WebhookDeliveryUpdate {
   lastAttemptAt?: Date | null;
   deliveredAt?: Date | null;
   lastError?: string | null;
+}
+
+interface DecodedTransactionCursor {
+  createdAt: Date;
+  id: string;
 }
 
 /**
@@ -217,6 +221,24 @@ export function validateMetadata(metadata: unknown): Record<string, unknown> {
     throw new Error(`Metadata exceeds ${MAX_METADATA_BYTES / 1024} KB`);
   }
   return validated;
+}
+
+function decodeTransactionCursor(cursor: string): DecodedTransactionCursor {
+  const decoded = Buffer.from(cursor, "base64").toString("utf8");
+  const separator = decoded.lastIndexOf("|");
+
+  if (separator === -1) {
+    throw new Error("Invalid transaction cursor");
+  }
+
+  const createdAt = new Date(decoded.slice(0, separator));
+  const id = decoded.slice(separator + 1);
+
+  if (Number.isNaN(createdAt.getTime()) || !id) {
+    throw new Error("Invalid transaction cursor");
+  }
+
+  return { createdAt, id };
 }
 
 function normalizeEndDate(endDate: string): Date {

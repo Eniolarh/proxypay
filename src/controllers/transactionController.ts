@@ -49,8 +49,9 @@ import { createError } from "../middleware/errorHandler";
 import {
   createCursor,
   createPaginatedResponse,
+  decodeCursor,
+  PaginationError,
 } from "../utils/pagination";
-import { decodeTransactionCursor, TransactionCursorError } from "../utils/transactionCursor";
 import { activityTrackingService } from "../services/activityTrackingService";
 import { transactionReversalService } from "../services/transactionReversalService";
 
@@ -296,11 +297,20 @@ export const getTransactionHistoryHandler = async (
     let total: number | undefined;
 
     if (before || after) {
-      // Validate incoming cursors up front (legacy `<ts>|<id>` format still
-      // accepted). `TransactionCursorError` is mapped to a 400 by the catch
-      // block below, so structurally unexpected cursors never reach SQL.
-      if (before) decodeTransactionCursor(before as string);
-      if (after) decodeTransactionCursor(after as string);
+      // Validate incoming cursors up front (legacy `<ts>|<id>` format still accepted)
+      try {
+        if (before) decodeCursor(before as string);
+        if (after) decodeCursor(after as string);
+      } catch (error) {
+        if (error instanceof PaginationError) {
+          throw createError(
+            ERROR_CODES.INVALID_INPUT,
+            "Invalid pagination cursor",
+            { error: "Invalid pagination cursor" },
+          );
+        }
+        throw error;
+      }
 
       const rows = await transactionModel.list(
         limitNum + 1,
@@ -366,14 +376,6 @@ export const getTransactionHistoryHandler = async (
       },
     });
   } catch (error) {
-    // Malformed cursors are client input, not a server failure.
-    if (error instanceof TransactionCursorError) {
-      throw createError(
-        ERROR_CODES.INVALID_INPUT,
-        "Invalid pagination cursor",
-        { error: "Invalid pagination cursor" },
-      );
-    }
     console.error("History Fetch Error:", error);
     throw createError(
       ERROR_CODES.INTERNAL_ERROR,
