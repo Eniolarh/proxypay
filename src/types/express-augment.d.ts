@@ -12,7 +12,6 @@ declare global {
     interface Request {
       jwtUser?: { userId?: string; role?: string };
       user?: User;
-      pagination?: import("../utils/pagination").DecodedPaginationParams;
       isNewDevice?: boolean;
       requiresAdditionalVerification?: boolean;
       twoFactorVerified?: boolean;

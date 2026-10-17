@@ -1,9 +1,4 @@
 import { pool, queryRead, queryWrite } from "../config/database";
-import {
-  CursorPayload,
-  buildCursorWhere,
-  createCursor,
-} from "../utils/pagination";
 
 export type DestinationType = "phone" | "stellar";
 
@@ -59,18 +54,8 @@ export class ContactModel {
     return mapRow(result.rows[0]);
   }
 
-  /**
-   * List a user's contacts, newest first, with keyset (cursor) pagination.
-   *
-   * Ordering is stable: `ORDER BY created_at DESC, id DESC` with the cursor
-   * predicate `(created_at, id) < (cursor.t, cursor.id)` so rows with equal
-   * timestamps are never skipped or duplicated across pages.
-   */
-  async listByUser(
-    userId: string,
-    options?: { limit?: number; cursor?: CursorPayload; search?: string },
-  ): Promise<{ contacts: UserContact[]; nextCursor?: string }> {
-    const limit = Math.min(Math.max(options?.limit ?? 50, 1), 100);
+  async listByUser(userId: string, options?: { limit?: number; cursor?: string; search?: string }): Promise<{ contacts: UserContact[]; nextCursor?: string }> {
+    const limit = options?.limit ?? 50;
     const cursor = options?.cursor;
     const search = options?.search?.trim();
 
@@ -85,29 +70,16 @@ export class ContactModel {
     }
 
     if (cursor) {
-      const { clause, params: cursorParams } = buildCursorWhere(cursor, {
-        column: "created_at",
-        idColumn: "id",
-        order: "desc",
-        direction: "forward",
-        paramOffset: params.length + 1,
-      });
-      query += ` AND ${clause}`;
-      params.push(...cursorParams);
+      query += ` AND created_at <= (SELECT created_at FROM user_contacts WHERE id = $${params.length + 1} AND user_id = $1)`;
+      params.push(cursor);
     }
 
-    // Fetch one extra row — the overflow row signals there is a next page.
-    query += ` ORDER BY created_at DESC, id DESC LIMIT $${params.length + 1}`;
-    params.push(limit + 1);
+    query += ` ORDER BY created_at DESC LIMIT $${params.length + 1}`;
+    params.push(limit);
 
     const result = await queryRead(query, params);
-    const rows = result.rows.map(mapRow);
-    const hasMore = rows.length > limit;
-    const contacts = hasMore ? rows.slice(0, limit) : rows;
-
-    const last = contacts[contacts.length - 1];
-    const nextCursor =
-      hasMore && last ? createCursor(last.createdAt, last.id) : undefined;
+    const contacts = result.rows.map(mapRow);
+    const nextCursor = contacts.length === limit ? contacts[contacts.length - 1]?.id : undefined;
     return { contacts, nextCursor };
   }
 
